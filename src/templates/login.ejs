@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Banco UNI</title>
+    <link rel="icon" type="image/png" href="/icono.png" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC"
+      crossorigin="anonymous"
+    />
+  </head>
+
+  <style>
+    html {
+      font-size: 14px;
+    }
+  </style>
+  <body class="bg-light min-vh-100">
+    <div
+      class="container d-flex align-items-center justify-content-center"
+      style="height: 90vh"
+    >
+      <!-- Toast Bootstrap -->
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        style="position: fixed; bottom: 20px; right: 20px; z-index: 9999"
+      >
+        <div class="d-flex">
+          <div class="toast-body" id="toast-body-mensaje"></div>
+          <button
+            type="button"
+            class="btn-close btn-close-white me-2 m-auto"
+            data-bs-dismiss="toast"
+            aria-label="Close"
+          ></button>
+        </div>
+      </div>
+      <div class="card shadow p-4" style="max-width: 400px; width: 100%">
+        <div class="text-center mb-4">
+          <h2 class="fw-bold">Banco UNI</h2>
+          <p class="text-muted">Iniciar sesión en tu cuenta</p>
+        </div>
+        <% if (error) { %>
+        <div class="alert alert-danger py-2"><%= error %></div>
+        <% } %>
+        <form method="post" action="/login">
+          <div class="mb-3">
+            <label for="usuario" class="form-label">Usuario</label>
+            <input
+              type="text"
+              class="form-control"
+              id="usuario"
+              name="usuario"
+              required
+              autofocus
+            />
+          </div>
+          <div class="mb-3">
+            <label for="password" class="form-label">Contraseña</label>
+            <input
+              type="password"
+              class="form-control"
+              id="password"
+              name="password"
+              required
+            />
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Entrar</button>
+        </form>
+        <div class="mt-3 text-center">
+          <span>¿No tienes cuenta? <a href="/register">Regístrate</a></span>
+        </div>
+      </div>
+    </div>
+    <footer
+      class="bg-light text-muted py-1 border-top"
+      style="height: 5vh; position: absolute; bottom: 0; width: 100%"
+    >
+      <div class="container d-flex justify-content-between align-items-center">
+        <span>v1.0.0</span>
+        <span
+          >Derechos reservados
+          <a
+            href="https://github.com/shifu222"
+            target="_blank"
+            class="text-decoration-none"
+            >shifu222</a
+          ></span
+        >
+      </div>
+    </footer>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+      // Mostrar notificación SweetAlert2 si hay mensaje en localStorage
+      document.addEventListener("DOMContentLoaded", function () {
+        const mensaje = localStorage.getItem("mensaje");
+        if (mensaje) {
+          Swal.fire({
+            toast: true,
+            position: "bottom-end",
+            icon: "success",
+            title: mensaje,
+            showConfirmButton: false,
+            timer: 5000,
+            timerProgressBar: true,
+          });
+          localStorage.removeItem("mensaje");
+        }
+      });
+    </script>
+  </body>
+</html>
