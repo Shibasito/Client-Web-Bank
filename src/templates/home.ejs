@@ -53,6 +53,26 @@
             </div>
             <hr />
             <div class="mb-4">
+            <div class="mb-4">
+              <h5 class="mb-3">Solicitar préstamo</h5>
+              <form id="form-prestamo" class="row g-3">
+                <div class="col-8 col-md-10">
+                  <input
+                    type="number"
+                    class="form-control"
+                    id="monto-prestamo"
+                    name="monto"
+                    min="1"
+                    step="any"
+                    placeholder="Monto a solicitar"
+                    required
+                  />
+                </div>
+                <div class="col-4 col-md-2 d-grid">
+                  <button type="submit" class="btn btn-success">Pedir</button>
+                </div>
+              </form>
+            </div>
               <h5 class="mb-3">Realizar transferencia</h5>
               <% if (error) { %>
               <div class="alert alert-danger py-2"><%= error %></div>
@@ -155,6 +175,88 @@
       href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css"
     />
     <script>
+      // Lógica para solicitar préstamo
+      document.getElementById("form-prestamo").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const form = e.target;
+        const monto = form["monto"].value;
+        Swal.fire({
+          title: "Procesando...",
+          html: "<div class='spinner-border text-primary' role='status'><span class='visually-hidden'>Cargando...</span></div>",
+          allowOutsideClick: false,
+          showConfirmButton: false,
+          didOpen: () => {
+            Swal.showLoading();
+          },
+        });
+        try {
+          const res = await fetch("/prestamo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monto }),
+          });
+          const result = await res.json();
+          Swal.close();
+          if (result.error) {
+            Swal.fire({
+              icon: "error",
+              title: "Error",
+              text: result.error,
+              toast: true,
+              position: "bottom-end",
+              timer: 3000,
+              showConfirmButton: false,
+            });
+          } else {
+            // Actualizar saldo
+            document.querySelector(
+              ".display-6.fw-bold.text-success"
+            ).textContent = "$ " + result.saldo;
+            // Actualizar tabla de transacciones usando DataTable
+            const table = $("#tabla-transacciones").DataTable();
+            table.clear();
+            if (result.transacciones && result.transacciones.length > 0) {
+              result.transacciones.forEach(function (tx) {
+                table.row.add([
+                  tx.fecha,
+                  tx.destino || tx.origen || "",
+                  `<span class='fw-bold ${
+                    tx.tipo === "Ingreso" ? "text-success" : tx.tipo === "Préstamo" ? "text-primary" : "text-danger"
+                  }'>$ ${tx.monto}</span>`,
+                  tx.tipo === "Ingreso"
+                    ? '<span class="badge bg-success">Ingreso</span>'
+                    : tx.tipo === "Salida"
+                    ? '<span class="badge bg-danger">Salida</span>'
+                    : tx.tipo === "Préstamo"
+                    ? '<span class="badge bg-primary">Préstamo</span>'
+                    : '<span class="badge bg-secondary">-</span>',
+                ]);
+              });
+            }
+            table.draw();
+            Swal.fire({
+              icon: "success",
+              title: "Préstamo otorgado",
+              toast: true,
+              position: "bottom-end",
+              timer: 3000,
+              showConfirmButton: false,
+            });
+            form.reset();
+          }
+        } catch (err) {
+          Swal.close();
+          Swal.fire({
+            icon: "error",
+            title: "Error",
+            text: "Error de red o servidor.",
+            toast: true,
+            position: "bottom-end",
+            timer: 3000,
+            showConfirmButton: false,
+          });
+        }
+      });
       $(document).ready(function () {
         $("#tabla-transacciones").DataTable({
           language: {
@@ -189,56 +291,80 @@
             destino: form.destino.value,
             monto: form.monto.value,
           };
-          const res = await fetch("/transfer", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
+          // Mostrar animación de cargando
+          Swal.fire({
+            title: "Procesando...",
+            html: "<div class='spinner-border text-primary' role='status'><span class='visually-hidden'>Cargando...</span></div>",
+            allowOutsideClick: false,
+            showConfirmButton: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
           });
-          const result = await res.json();
-          if (result.error) {
+          try {
+            const res = await fetch("/transfer", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(data),
+            });
+            const result = await res.json();
+            Swal.close();
+            if (result.error) {
+              Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: result.error,
+                toast: true,
+                position: "bottom-end",
+                timer: 3000,
+                showConfirmButton: false,
+              });
+            } else {
+              // Actualizar saldo
+              document.querySelector(
+                ".display-6.fw-bold.text-success"
+              ).textContent = "$ " + result.saldo;
+              // Actualizar tabla de transacciones usando DataTable
+              const table = $("#tabla-transacciones").DataTable();
+              table.clear();
+              if (result.transacciones && result.transacciones.length > 0) {
+                result.transacciones.forEach(function (tx) {
+                  table.row.add([
+                    tx.fecha,
+                    tx.destino || tx.origen || "",
+                    `<span class='fw-bold ${
+                      tx.tipo === "Ingreso" ? "text-success" : "text-danger"
+                    }'>$ ${tx.monto}</span>`,
+                    tx.tipo === "Ingreso"
+                      ? '<span class="badge bg-success">Ingreso</span>'
+                      : tx.tipo === "Salida"
+                      ? '<span class="badge bg-danger">Salida</span>'
+                      : '<span class="badge bg-secondary">-</span>',
+                  ]);
+                });
+              }
+              table.draw();
+              Swal.fire({
+                icon: "success",
+                title: "Transferencia realizada",
+                toast: true,
+                position: "bottom-end",
+                timer: 3000,
+                showConfirmButton: false,
+              });
+              form.reset();
+            }
+          } catch (err) {
+            Swal.close();
             Swal.fire({
               icon: "error",
               title: "Error",
-              text: result.error,
+              text: "Error de red o servidor.",
               toast: true,
               position: "bottom-end",
               timer: 3000,
               showConfirmButton: false,
             });
-          } else {
-            // Actualizar saldo
-            document.querySelector(
-              ".display-6.fw-bold.text-success"
-            ).textContent = "$ " + result.saldo;
-            // Actualizar tabla de transacciones usando DataTable
-            const table = $("#tabla-transacciones").DataTable();
-            table.clear();
-            if (result.transacciones && result.transacciones.length > 0) {
-              result.transacciones.forEach(function (tx) {
-                table.row.add([
-                  tx.fecha,
-                  tx.destino || tx.origen || "",
-                  `<span class='fw-bold ${
-                    tx.tipo === "Ingreso" ? "text-success" : "text-danger"
-                  }'>$ ${tx.monto}</span>`,
-                  tx.tipo === "Ingreso"
-                    ? '<span class="badge bg-success">Ingreso</span>'
-                    : tx.tipo === "Salida"
-                    ? '<span class="badge bg-danger">Salida</span>'
-                    : '<span class="badge bg-secondary">-</span>',
-                ]);
-              });
-            }
-            table.draw();
-            Swal.fire({
-              icon: "success",
-              title: "Transferencia realizada",
-              toast: true,
-              position: "bottom-end",
-              timer: 3000,
-              showConfirmButton: false,
-            });
-            form.reset();
           }
         });
     </script>

@@ -181,9 +181,9 @@
             Swal.close();
             if (res.ok) {
               const data = await res.json();
-              document.getElementById("nombre").value = data.nombre || "";
-              document.getElementById("apellido").value = data.apellido || "";
-              if (data.nombre && data.apellido) {
+              document.getElementById("nombre").value = data.nombres || "";
+              document.getElementById("apellido").value = data.apellidos || "";
+              if (data.nombres && data.apellidos) {
                 document.getElementById("btnSiguiente").disabled = false;
               } else {
                 document.getElementById("btnSiguiente").disabled = true;
