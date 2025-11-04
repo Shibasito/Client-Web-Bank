@@ -21,7 +21,8 @@ const pendingResponses = new Map();
 //  Inicializar conexión RabbitMQ
 async function initRabbit() {
     try {
-        const conn = await amqp.connect("amqp://localhost");
+        // Cambia aquí si tu RabbitMQ requiere usuario/contraseña personalizados
+        const conn = await amqp.connect("amqp://admin:admin@localhost");
         channel = await conn.createChannel();
         const { queue } = await channel.assertQueue("", { exclusive: true });
         replyQueue = queue;
@@ -80,16 +81,15 @@ app.get("/", async (req, res) => {
     const usuarioId = req.cookies.sesion;
     try {
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "consultar",
-            payload: { userId: usuarioId },
+            operationType: "GetClientInfo",
+            clientId: usuarioId,
         });
 
-        if (response.status === "ok") {
-            const { cuenta } = response;
+        if (response.status === "ok" && response.data) {
+            const cuenta = response.data;
             res.render("home", {
-                usuario: cuenta.usuario,
-                saldo: cuenta.saldo,
-                transacciones: cuenta.transacciones,
+                usuario: cuenta.usuario || cuenta.dni || cuenta.clientId || cuenta.clienteId || "",
+                accounts: cuenta.accounts || [],
                 error: null,
                 mensaje: response.message,
                 id: usuarioId,
@@ -116,13 +116,21 @@ app.post("/login", async (req, res) => {
             payload: { usuario, password },
         });
 
-        if (response.status === "ok" && response.cuenta) {
-            res.cookie("sesion", response.cuenta.id, { httpOnly: true });
+
+        if (response.status === "ok" && response.data) {
+            // El backend retorna clientId o clienteId
+            const id = response.data.clienteId;
+            const user = "Gabriel"
+            console.log(response.data);
+            res.cookie("sesion", id, { httpOnly: true });
+            res.cookie("username", user, { httpOnly: true });
             res.redirect("/");
         } else {
-            res.render("login", { error: response.error || "Credenciales incorrectas" });
+
+            res.render("login", { error: response.error.message });
         }
     } catch (err) {
+        console.error("[LOGIN] Error en login o timeout:", err);
         res.render("login", { error: "No se recibió respuesta del banco" });
     }
 });
@@ -134,18 +142,27 @@ app.get("/register", (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-    const { usuario, password, confirmar, dni } = req.body;
+    const { usuario, password, confirmar, dni, nombre, apellido } = req.body;
     if (password !== confirmar)
         return res.render("register", { error: "Las contraseñas no coinciden" });
 
     try {
+        // El backend espera: usuario, password, dni, nombres, apellidos
         const response = await sendRpcMessage("bank_queue", {
             operationType: "register",
-            payload: { usuario, password, dni, saldo: 1000, transacciones: [] },
+            messageId: "uuid-123", // que es message id y como se genera
+            payload: {
+                usuario,
+                password,
+                dni,
+                nombres: nombre,
+                apellidos: apellido,
+                saldo: 1000
+            },
         });
 
         if (response.status === "ok") res.redirect("/login");
-        else res.render("register", { error: response.error || "Error al registrar usuario" });
+        else res.render("register", { error: response.error.message || "Error al registrar usuario" });
     } catch (err) {
         res.render("register", { error: "No se recibió respuesta del banco" });
     }
@@ -153,23 +170,27 @@ app.post("/register", async (req, res) => {
 
 // Transferencia
 app.post("/transfer", async (req, res) => {
-    const { destino, monto } = req.body;
-    const idOrigen = req.cookies.sesion;
+    const { destino, monto, origen, note } = req.body;
 
     try {
+        // El backend espera: origen (id), destino (dni), monto
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "transaction",
-            payload: { idOrigen, idDestino: destino, monto: Number(monto) },
+            operationType: "Transfer",
+            fromAccountId: origen,
+            toAccountId: destino,
+            amount: monto,
+            metadata: { note: note }, // es importante? 
+            messageId: "1231231321" // que es message id? 
         });
 
-        if (response.status === "ok" && response.cuenta) {
+        if (response.status === "ok" && response.data) {
             res.json({
-                saldo: response.cuenta.saldo,
-                transacciones: response.cuenta.transacciones,
+                saldo: response.data.balance || response.data.saldo || 0,
+                transacciones: response.data.transacciones || response.data.transactions || [],
                 mensaje: response.message
             });
         } else {
-            res.json({ error: response.error || "Error en la transferencia" });
+            res.json({ error: response.error.message || "Error en la transferencia" });
         }
     } catch {
         res.json({ error: "No se recibió respuesta del banco" });
@@ -178,23 +199,27 @@ app.post("/transfer", async (req, res) => {
 
 
 app.post("/prestamo", async (req, res) => {
-    const { monto } = req.body;
+    const { monto, origen } = req.body;
     const idUsuario = req.cookies.sesion;
 
     try {
+        // El backend espera: idCliente, monto
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "prestamo",
-            payload: { idUsuario, monto: Number(monto) },
+            operationType: "CreateLoan",
+            messageId: "6f7b2d90-...",
+            clientId: origen,
+            principal: monto,
+            currency: "PEN"
         });
 
-        if (response.status === "ok" && response.cuenta) {
+        if (response.status === "ok" && response.data) {
             res.json({
-                saldo: response.cuenta.saldo,
-                transacciones: response.cuenta.transacciones,
+                saldo: response.data.balance || response.data.saldo || 0,
+                transacciones: response.data.transacciones || response.data.transactions || [],
                 mensaje: response.message
             });
         } else {
-            res.json({ error: response.error || "Error en el préstamo" });
+            res.json({ error: response.error.message || "Error en el préstamo" });
         }
     } catch {
         res.json({ error: "No se recibió respuesta del banco" });
@@ -204,6 +229,7 @@ app.post("/prestamo", async (req, res) => {
 // Logout
 app.get("/logout", (req, res) => {
     res.clearCookie("sesion");
+    res.clearCookie("username")
     res.redirect("/login");
 });
 
@@ -221,6 +247,55 @@ app.get("/dni", async (req, res) => {
         res.status(500).json({ error: "No se recibió respuesta de RENIEC" });
     }
 });
+
+app.get('/cuenta/:id', async (req, res) => {
+    const { id } = req.params;
+    const usuario = req.cookies.username;
+
+    const response = await sendRpcMessage("bank_queue", {
+        operationType: "GetBalance",
+        accountId: id
+    });
+
+    if (response.status === "ok" && response.data) {
+
+        const saldo = response.data.balance || 0;
+
+        const mensaje = response.message || "";
+
+        const accountId = response.data.accountId || "";
+        res.render("cuenta", { usuario, saldo, mensaje, id, accountId })
+
+    } else {
+        res.json({ error: response.error.message || "Error al consultar la cuenta" });
+    }
+});
+
+
+app.get('/transactions', async (req, res) => {
+    const id = req.query.accountId;
+
+    const response = await sendRpcMessage("bank_queue", {
+        operationType: "ListTransactions",
+        accountId: id,
+        from: "2025-10-01",
+        to: "2025-10-31",
+        limit: 100,
+        offset: 0
+    });
+
+
+    if (response.status === "ok" && response.data) {
+
+        const transacciones = response.data.items;
+
+        res.json({ transacciones });
+
+    } else {
+        res.json({ error: response.error || "Error al obtener los movimientos" });
+    }
+
+})
 
 // 🪪 QR
 function obfuscate(text) {
