@@ -103,7 +103,20 @@ app.get("/", async (req, res) => {
         if (clientResponse.ok) {
             const { nombres, apellidoPat, dni } = clientResponse.data;
             const balance = balanceResponse?.ok ? balanceResponse.data.balance : 0;
-            const transactions = txResponse?.ok ? txResponse.data.items : [];
+            console.log("Client Response:", JSON.stringify(clientResponse, null, 2));
+            console.log("Balance Response:", JSON.stringify(balanceResponse, null, 2));
+            console.log("Transactions Response:", JSON.stringify(txResponse, null, 2));
+            
+            const transactions = txResponse?.ok && txResponse.data.items ? 
+                txResponse.data.items.map(tx => ({
+                    fecha: tx.date || tx.fecha || '',
+                    destino: tx.toAccount || tx.destino || accountId,
+                    origen: tx.fromAccount || tx.origen || '',
+                    monto: tx.amount || tx.monto || 0,
+                    tipo: tx.type === 'deposito' || tx.type === 'deposit' ? 'Ingreso' : 
+                          tx.type === 'retiro' || tx.type === 'withdraw' ? 'Salida' : 
+                          tx.tipo || 'Otro'
+                })) : [];
             
             res.render("home", {
                 usuario: `${nombres} ${apellidoPat}`,
@@ -111,7 +124,7 @@ app.get("/", async (req, res) => {
                 transacciones: transactions,
                 error: null,
                 mensaje: null,
-                id: clientId,
+                id: accountId || clientId,
             });
         } else {
             res.render("home", { 
@@ -119,11 +132,20 @@ app.get("/", async (req, res) => {
                 saldo: 0, 
                 error: clientResponse.error?.message || "Error al consultar información", 
                 transacciones: [], 
+                mensaje: null,
                 id: clientId 
             });
         }
     } catch (err) {
-        res.render("home", { usuario: "", saldo: 0, error: err.message, transacciones: [], id: clientId });
+        console.error("Error en home:", err);
+        res.render("home", { 
+            usuario: "", 
+            saldo: 0, 
+            error: err.message, 
+            transacciones: [], 
+            mensaje: null,
+            id: clientId 
+        });
     }
 });
 
