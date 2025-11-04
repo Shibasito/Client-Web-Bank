@@ -21,7 +21,7 @@ const pendingResponses = new Map();
 //  Inicializar conexión RabbitMQ
 async function initRabbit() {
     try {
-        const conn = await amqp.connect("amqp://localhost");
+        const conn = await amqp.connect("amqp://admin:admin@localhost");
         channel = await conn.createChannel();
         const { queue } = await channel.assertQueue("", { exclusive: true });
         replyQueue = queue;
@@ -77,28 +77,53 @@ app.use((req, res, next) => {
 
 //  Home
 app.get("/", async (req, res) => {
-    const usuarioId = req.cookies.sesion;
+    const clientId = req.cookies.sesion;
+    const accountId = req.cookies.accountId;
+    
     try {
-        const response = await sendRpcMessage("bank_queue", {
-            operationType: "consultar",
-            payload: { userId: usuarioId },
+        // Get client info
+        const clientResponse = await sendRpcMessage("bank_queue", {
+            type: "GetClientInfo",
+            clientId: clientId,
         });
 
-        if (response.status === "ok") {
-            const { cuenta } = response;
+        // Get balance
+        const balanceResponse = accountId ? await sendRpcMessage("bank_queue", {
+            type: "GetBalance",
+            accountId: accountId,
+        }) : null;
+
+        // Get transactions
+        const txResponse = accountId ? await sendRpcMessage("bank_queue", {
+            type: "ListTransactions",
+            accountId: accountId,
+            limit: 10,
+        }) : null;
+
+        if (clientResponse.ok) {
+            const { nombres, apellidoPat, dni } = clientResponse.data;
+            const balance = balanceResponse?.ok ? balanceResponse.data.balance : 0;
+            const transactions = txResponse?.ok ? txResponse.data.items : [];
+            
             res.render("home", {
-                usuario: cuenta.usuario,
-                saldo: cuenta.saldo,
-                transacciones: cuenta.transacciones,
+                usuario: `${nombres} ${apellidoPat}`,
+                saldo: balance,
+                transacciones: transactions,
                 error: null,
-                mensaje: response.message,
-                id: usuarioId,
+                mensaje: null,
+                id: clientId,
             });
         } else {
-            res.render("home", { usuario: "", saldo: 0, error: response.error, transacciones: [], id: usuarioId });
+            res.render("home", { 
+                usuario: "", 
+                saldo: 0, 
+                error: clientResponse.error?.message || "Error al consultar información", 
+                transacciones: [], 
+                id: clientId 
+            });
         }
     } catch (err) {
-        res.render("home", { usuario: "", saldo: 0, error: err.message, transacciones: [], id: usuarioId });
+        res.render("home", { usuario: "", saldo: 0, error: err.message, transacciones: [], id: clientId });
     }
 });
 
@@ -112,15 +137,19 @@ app.post("/login", async (req, res) => {
     const { usuario, password } = req.body;
     try {
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "login",
-            payload: { usuario, password },
+            type: "login",
+            dni: usuario,
+            password: password,
         });
 
-        if (response.status === "ok" && response.cuenta) {
-            res.cookie("sesion", response.cuenta.id, { httpOnly: true });
+        if (response.ok && response.data) {
+            res.cookie("sesion", response.data.clientId, { httpOnly: true });
+            if (response.data.accountId) {
+                res.cookie("accountId", response.data.accountId, { httpOnly: true });
+            }
             res.redirect("/");
         } else {
-            res.render("login", { error: response.error || "Credenciales incorrectas" });
+            res.render("login", { error: response.error?.message || "Credenciales incorrectas" });
         }
     } catch (err) {
         res.render("login", { error: "No se recibió respuesta del banco" });
@@ -140,12 +169,23 @@ app.post("/register", async (req, res) => {
 
     try {
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "register",
-            payload: { usuario, password, dni, saldo: 1000, transacciones: [] },
+            type: "register",
+            messageId: uuidv4(),
+            dni: dni || usuario,
+            password: password,
+            nombres: "",
+            apellidoPat: "",
+            apellidoMat: "",
+            saldo: "1000",
         });
 
-        if (response.status === "ok") res.redirect("/login");
-        else res.render("register", { error: response.error || "Error al registrar usuario" });
+        if (response.ok && !response.data.duplicate) {
+            res.redirect("/login");
+        } else if (response.data?.duplicate) {
+            res.render("register", { error: "Usuario ya registrado" });
+        } else {
+            res.render("register", { error: response.error?.message || "Error al registrar usuario" });
+        }
     } catch (err) {
         res.render("register", { error: "No se recibió respuesta del banco" });
     }
@@ -154,24 +194,40 @@ app.post("/register", async (req, res) => {
 // Transferencia
 app.post("/transfer", async (req, res) => {
     const { destino, monto } = req.body;
-    const idOrigen = req.cookies.sesion;
+    const fromAccountId = req.cookies.accountId;
 
     try {
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "transaction",
-            payload: { idOrigen, idDestino: destino, monto: Number(monto) },
+            type: "Transfer",
+            messageId: uuidv4(),
+            fromAccountId: fromAccountId,
+            toAccountId: destino,
+            amount: String(monto),
         });
 
-        if (response.status === "ok" && response.cuenta) {
+        if (response.ok && !response.data.duplicate) {
+            // Get updated balance
+            const balanceResponse = await sendRpcMessage("bank_queue", {
+                type: "GetBalance",
+                accountId: fromAccountId,
+            });
+
+            // Get updated transactions
+            const txResponse = await sendRpcMessage("bank_queue", {
+                type: "ListTransactions",
+                accountId: fromAccountId,
+                limit: 10,
+            });
+
             res.json({
-                saldo: response.cuenta.saldo,
-                transacciones: response.cuenta.transacciones,
-                mensaje: response.message
+                saldo: balanceResponse.ok ? balanceResponse.data.balance : 0,
+                transacciones: txResponse.ok ? txResponse.data.items : [],
+                mensaje: "Transferencia exitosa"
             });
         } else {
-            res.json({ error: response.error || "Error en la transferencia" });
+            res.json({ error: response.error?.message || "Error en la transferencia" });
         }
-    } catch {
+    } catch (err) {
         res.json({ error: "No se recibió respuesta del banco" });
     }
 });
@@ -179,24 +235,41 @@ app.post("/transfer", async (req, res) => {
 
 app.post("/prestamo", async (req, res) => {
     const { monto } = req.body;
-    const idUsuario = req.cookies.sesion;
+    const clientId = req.cookies.sesion;
+    const accountId = req.cookies.accountId;
 
     try {
         const response = await sendRpcMessage("bank_queue", {
-            operationType: "prestamo",
-            payload: { idUsuario, monto: Number(monto) },
+            type: "CreateLoan",
+            messageId: uuidv4(),
+            clientId: clientId,
+            accountId: accountId,
+            principal: String(monto),
         });
 
-        if (response.status === "ok" && response.cuenta) {
+        if (response.ok && !response.data.duplicate) {
+            // Get updated balance
+            const balanceResponse = await sendRpcMessage("bank_queue", {
+                type: "GetBalance",
+                accountId: accountId,
+            });
+
+            // Get updated transactions
+            const txResponse = await sendRpcMessage("bank_queue", {
+                type: "ListTransactions",
+                accountId: accountId,
+                limit: 10,
+            });
+
             res.json({
-                saldo: response.cuenta.saldo,
-                transacciones: response.cuenta.transacciones,
-                mensaje: response.message
+                saldo: balanceResponse.ok ? balanceResponse.data.balance : response.data.newBalance,
+                transacciones: txResponse.ok ? txResponse.data.items : [],
+                mensaje: "Préstamo aprobado"
             });
         } else {
-            res.json({ error: response.error || "Error en el préstamo" });
+            res.json({ error: response.error?.message || "Error en el préstamo" });
         }
-    } catch {
+    } catch (err) {
         res.json({ error: "No se recibió respuesta del banco" });
     }
 });
@@ -204,6 +277,7 @@ app.post("/prestamo", async (req, res) => {
 // Logout
 app.get("/logout", (req, res) => {
     res.clearCookie("sesion");
+    res.clearCookie("accountId");
     res.redirect("/login");
 });
 
