@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Banco UNI</title>
+    <title>SHIBASITO</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
       rel="stylesheet"
@@ -24,7 +24,7 @@
     >
       <div class="card shadow p-4" style="max-width: 400px; width: 100%">
         <div class="text-center mb-4">
-          <h2 class="fw-bold">Banco UNI</h2>
+          <h2 class="fw-bold">SHIBASITO</h2>
           <p class="text-muted">Crea tu cuenta</p>
         </div>
         <% if (error) { %>
@@ -94,6 +94,7 @@
               id="usuario"
               name="usuario"
               required
+              readonly
             />
           </div>
           <div class="mb-3">
@@ -135,7 +136,7 @@
       style="height: 5vh; position: absolute; bottom: 0; width: 100%"
     >
       <div class="container d-flex justify-content-between align-items-center">
-        <span>v1.0.0</span>
+        <span>v1.2.0</span>
         <span
           >Derechos reservados
           <a
@@ -177,7 +178,7 @@
             },
           });
           try {
-            const res = await fetch(`/dni?dni=${dni}`);
+            const res = await fetch(`/persona?dni=${dni}`);
             Swal.close();
             if (res.ok) {
               const data = await res.json();
@@ -230,9 +231,11 @@
             document.getElementById("apellido").value;
           document.getElementById("form-step1").style.display = "none";
           document.getElementById("form-step2").style.display = "block";
+          document.getElementById("usuario").value =
+            document.getElementById("dni").value;
         });
 
-      // Paso 2: Enviar registro
+      // Paso 2: Enviar registro con loader
       document
         .getElementById("form-step2")
         .addEventListener("submit", async function (e) {
@@ -246,16 +249,60 @@
             password: form.password.value,
             confirmar: form.confirmar.value,
           };
-          const res = await fetch("/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams(data),
+
+          // Mostrar pantalla de carga antes de enviar
+          Swal.fire({
+            title: "Registrando...",
+            text: "Por favor, espere mientras se crea su cuenta",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
           });
-          if (res.redirected) {
-            localStorage.setItem("mensaje", "Usuario creado correctamente");
-            window.location.href = res.url;
-          } else {
-            window.location.reload();
+
+          try {
+            const res = await fetch("/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams(data),
+            });
+
+            //  Esperar confirmación y cerrar el loader
+            Swal.close();
+
+            if (res.redirected) {
+              // Mostrar confirmación y luego redirigir
+              await Swal.fire({
+                icon: "success",
+                title: "¡Cuenta creada!",
+                text: "Tu usuario ha sido registrado correctamente.",
+                showConfirmButton: false,
+                timer: 1500,
+              });
+
+              // Redirigir al home
+              window.location.href = res.url;
+            } else {
+              const html = await res.text();
+              // Si el servidor devolvió HTML (como re-render con error)
+              Swal.fire({
+                icon: "error",
+                title: "Error en el registro",
+                text: "No se pudo crear la cuenta. Verifique los datos.",
+              }).then(() => {
+                // Recargar la página para mostrar el error renderizado
+                document.open();
+                document.write(html);
+                document.close();
+              });
+            }
+          } catch (err) {
+            Swal.close();
+            Swal.fire({
+              icon: "error",
+              title: "Error del servidor",
+              text: "No se pudo completar la solicitud. Intente nuevamente.",
+            });
           }
         });
     </script>

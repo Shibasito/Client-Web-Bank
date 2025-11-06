@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Banco UNI</title>
+    <title>SHIBASITO</title>
     <link rel="icon" type="image/png" href="/icono.png" />
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
@@ -41,7 +41,7 @@
       </div>
       <div class="card shadow p-4" style="max-width: 400px; width: 100%">
         <div class="text-center mb-4">
-          <h2 class="fw-bold">Banco UNI</h2>
+          <h2 class="fw-bold">SHIBASITO</h2>
           <p class="text-muted">Iniciar sesión en tu cuenta</p>
         </div>
         <% if (error) { %>
@@ -81,7 +81,7 @@
       style="height: 5vh; position: absolute; bottom: 0; width: 100%"
     >
       <div class="container d-flex justify-content-between align-items-center">
-        <span>v1.0.0</span>
+        <span>v1.2.0</span>
         <span
           >Derechos reservados
           <a
@@ -99,7 +99,6 @@
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
-      // Mostrar notificación SweetAlert2 si hay mensaje en localStorage
       document.addEventListener("DOMContentLoaded", function () {
         const mensaje = localStorage.getItem("mensaje");
         if (mensaje) {
@@ -115,6 +114,17 @@
           localStorage.removeItem("mensaje");
         }
       });
+      document
+        .querySelector("form[action='/login']")
+        .addEventListener("submit", function () {
+          Swal.fire({
+            title: "Iniciando sesión...",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+        });
     </script>
   </body>
 </html>

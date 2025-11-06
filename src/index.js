@@ -21,7 +21,7 @@ const pendingResponses = new Map();
 //  Inicializar conexión RabbitMQ
 async function initRabbit() {
     try {
-        // Cambia aquí si tu RabbitMQ requiere usuario/contraseña personalizados
+
         const conn = await amqp.connect("amqp://admin:admin@localhost");
         channel = await conn.createChannel();
         const { queue } = await channel.assertQueue("", { exclusive: true });
@@ -70,7 +70,7 @@ function sendRpcMessage(queue, message) {
 
 //  Middleware autenticación
 app.use((req, res, next) => {
-    const pathsNoRedirect = ["/login", "/register", "/dni", "/qr"];
+    const pathsNoRedirect = ["/login", "/register", "/persona", "/qr"];
     if (pathsNoRedirect.includes(req.path)) return next();
     if (!req.cookies?.sesion) return res.redirect("/login");
     next();
@@ -87,8 +87,9 @@ app.get("/", async (req, res) => {
 
         if (response.status === "ok" && response.data) {
             const cuenta = response.data;
+            res.cookie("username", cuenta.nombres, { httpOnly: true });
             res.render("home", {
-                usuario: cuenta.usuario || cuenta.dni || cuenta.clientId || cuenta.clienteId || "",
+                usuario: cuenta.nombres,
                 accounts: cuenta.accounts || [],
                 error: null,
                 mensaje: response.message,
@@ -120,10 +121,10 @@ app.post("/login", async (req, res) => {
         if (response.status === "ok" && response.data) {
             // El backend retorna clientId o clienteId
             const id = response.data.clienteId;
-            const user = "Gabriel"
+
             console.log(response.data);
             res.cookie("sesion", id, { httpOnly: true });
-            res.cookie("username", user, { httpOnly: true });
+
             res.redirect("/");
         } else {
 
@@ -143,6 +144,7 @@ app.get("/register", (req, res) => {
 
 app.post("/register", async (req, res) => {
     const { usuario, password, confirmar, dni, nombre, apellido } = req.body;
+    const [apellidoPat, apellidoMat] = apellido.split(" ");
     if (password !== confirmar)
         return res.render("register", { error: "Las contraseñas no coinciden" });
 
@@ -150,13 +152,13 @@ app.post("/register", async (req, res) => {
         // El backend espera: usuario, password, dni, nombres, apellidos
         const response = await sendRpcMessage("bank_queue", {
             operationType: "register",
-            messageId: "uuid-123", // que es message id y como se genera
+            messageId: uuidv4(), // que es message id y como se genera
             payload: {
-                usuario,
                 password,
                 dni,
                 nombres: nombre,
-                apellidos: apellido,
+                apellidoPat,
+                apellidoMat,
                 saldo: 1000
             },
         });
@@ -180,17 +182,19 @@ app.post("/transfer", async (req, res) => {
             toAccountId: destino,
             amount: monto,
             metadata: { note: note }, // es importante? 
-            messageId: "1231231321" // que es message id? 
+            messageId: uuidv4()// que es message id? 
         });
 
         if (response.status === "ok" && response.data) {
+            const saldoActual = response.data.fromAccountNewBalance ?? response.data.currentBalance ?? response.data.balance ?? response.data.saldo ?? 0;
+
             res.json({
-                saldo: response.data.balance || response.data.saldo || 0,
+                saldo: saldoActual,
                 transacciones: response.data.transacciones || response.data.transactions || [],
                 mensaje: response.message
             });
         } else {
-            res.json({ error: response.error.message || "Error en la transferencia" });
+            res.json({ error: (response.error && response.error.message) || response.error || "Error en la transferencia" });
         }
     } catch {
         res.json({ error: "No se recibió respuesta del banco" });
@@ -200,26 +204,30 @@ app.post("/transfer", async (req, res) => {
 
 app.post("/prestamo", async (req, res) => {
     const { monto, origen } = req.body;
-    const idUsuario = req.cookies.sesion;
+    const clientId = req.cookies.sesion;
 
     try {
-        // El backend espera: idCliente, monto
+
         const response = await sendRpcMessage("bank_queue", {
             operationType: "CreateLoan",
-            messageId: "6f7b2d90-...",
-            clientId: origen,
+            messageId: uuidv4(),
+            clientId: clientId,
             principal: monto,
-            currency: "PEN"
+            currency: "PEN",
+            accountId: origen
         });
 
         if (response.status === "ok" && response.data) {
+
+            const saldoActual = response.data.currentBalance ?? response.data.accountNewBalance ?? response.data.newBalance ?? response.data.balance ?? response.data.saldo ?? 0;
+            console.log("[LOAN] respuesta del banco:", response);
             res.json({
-                saldo: response.data.balance || response.data.saldo || 0,
+                saldo: saldoActual,
                 transacciones: response.data.transacciones || response.data.transactions || [],
                 mensaje: response.message
             });
         } else {
-            res.json({ error: response.error.message || "Error en el préstamo" });
+            res.json({ error: (response.error && response.error.message) || response.error || "Error en el préstamo" });
         }
     } catch {
         res.json({ error: "No se recibió respuesta del banco" });
@@ -234,20 +242,34 @@ app.get("/logout", (req, res) => {
 });
 
 //  Consulta DNI
-app.get("/dni", async (req, res) => {
+app.get("/persona", async (req, res) => {
     const { dni } = req.query;
+
+    if (!dni) {
+        return res.status(400).json({ error: "Falta el DNI" });
+    }
+
     try {
         const response = await sendRpcMessage("reniec_queue", { dni });
-        if (response.status === "ok" && response.persona) {
-            res.json(response.persona);
+
+
+        if (response.ok && response.data?.valid) {
+            response.data.apellidos = response.data.apellidoPat + " " + response.data.apellidoMat;
+
+            res.json(response.data);
         } else {
-            res.status(404).json({ error: response.error || "No encontrado en RENIEC" });
+            res.status(404).json({
+                error: "No encontrado en RENIEC",
+                data: response.data || null,
+            });
         }
-    } catch {
+    } catch (err) {
+        console.error("[RENIEC] Error:", err);
         res.status(500).json({ error: "No se recibió respuesta de RENIEC" });
     }
 });
 
+// Inicio de Cuenta :id
 app.get('/cuenta/:id', async (req, res) => {
     const { id } = req.params;
     const usuario = req.cookies.username;
@@ -272,14 +294,16 @@ app.get('/cuenta/:id', async (req, res) => {
 });
 
 
+
+// Lista de transacciones de una cuenta
 app.get('/transactions', async (req, res) => {
     const id = req.query.accountId;
 
     const response = await sendRpcMessage("bank_queue", {
         operationType: "ListTransactions",
         accountId: id,
-        from: "2025-10-01",
-        to: "2025-10-31",
+        from: "2025-01-01",
+        to: "2026-01-01",
         limit: 100,
         offset: 0
     });
@@ -297,7 +321,7 @@ app.get('/transactions', async (req, res) => {
 
 })
 
-// 🪪 QR
+//  QR
 function obfuscate(text) {
     const base64url = Buffer.from(text, "utf8")
         .toString("base64")
